@@ -1,5 +1,7 @@
 package edu.illinois.library.cantaloupe.source;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.illinois.library.cantaloupe.Application;
 import edu.illinois.library.cantaloupe.config.Configuration;
 import edu.illinois.library.cantaloupe.config.Key;
@@ -8,6 +10,7 @@ import edu.illinois.library.cantaloupe.image.Identifier;
 import edu.illinois.library.cantaloupe.image.MediaType;
 import edu.illinois.library.cantaloupe.delegate.DelegateMethod;
 import edu.illinois.library.cantaloupe.delegate.DelegateProxy;
+import edu.illinois.library.cantaloupe.util.Stopwatch;
 import okhttp3.Headers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -127,10 +130,18 @@ class HttpSource extends AbstractSource implements Source {
         private int status;
         private Headers headers;
 
+        public int getStatus() {
+            return status;
+        }
+
         /**
          * Response entity with a maximum length of {@link #RANGE_LENGTH}.
          */
         private byte[] entity;
+
+        public byte[] getEntity() {
+            return entity;
+        }
 
         static ResourceInfo fromResponse(Response response) throws IOException {
             ResourceInfo info = new ResourceInfo();
@@ -544,18 +555,25 @@ class HttpSource extends AbstractSource implements Source {
 
     private ResourceInfo fetchResourceInfoViaHEAD() throws Exception {
         requestInfo = getRequestInfo();
+        final Stopwatch watch = new Stopwatch();
         try (Response response = request("HEAD", Collections.emptyMap())) {
             resourceInfo = ResourceInfo.fromResponse(response);
         }
+
+        LOGGER.debug("HEAD image returned in {}", watch);
         return resourceInfo;
     }
 
     private ResourceInfo fetchResourceInfoViaGET() throws Exception {
         requestInfo = getRequestInfo();
+        final Stopwatch watch = new Stopwatch();
+
         var extraHeaders = Map.of("Range", "bytes=0-" + (RANGE_LENGTH - 1));
         try (Response response = request("GET", extraHeaders)) {
             resourceInfo = ResourceInfo.fromResponse(response);
         }
+
+        LOGGER.debug("GET image returned in {}", watch);
         return resourceInfo;
     }
 
@@ -582,16 +600,36 @@ class HttpSource extends AbstractSource implements Source {
     }
 
     private HTTPRequestInfo newRequestInfoUsingBasicStrategy() {
+        String downloadLink = getDownloadLink("");
         final var config    = Configuration.getInstance();
         final String prefix = config.getString(Key.HTTPSOURCE_URL_PREFIX, "");
         final String suffix = config.getString(Key.HTTPSOURCE_URL_SUFFIX, "");
 
         final HTTPRequestInfo info = new HTTPRequestInfo();
-        info.setURI(prefix + identifier.toString() + suffix);
+//        info.setURI(prefix + identifier.toString() + suffix);
+        info.setURI(downloadLink);
         info.setUsername(config.getString(Key.HTTPSOURCE_BASIC_AUTH_USERNAME));
         info.setSecret(config.getString(Key.HTTPSOURCE_BASIC_AUTH_SECRET));
+        info.getHeaders().add("Referer", "http://cs.asanas.chaoxing.com/");
         info.setSendingHeadRequest(config.getBoolean(Key.HTTPSOURCE_SEND_HEAD_REQUESTS, true));
         return info;
+    }
+
+    private String getDownloadLink(String objectId) {
+        final HTTPRequestInfo info = new HTTPRequestInfo();
+        info.setURI("http://cs.ananas.chaoxing.com/status/adaeda1a3971021942250a4f21b29a9c");
+
+        try (Response response = request(info, "GET", Collections.emptyMap())) {
+            ResourceInfo resourceInfo = ResourceInfo.fromResponse(response);
+            if (resourceInfo.getStatus() != 200) {
+                return "";
+            }
+
+            JsonNode download = new ObjectMapper().readTree(resourceInfo.getEntity()).get("download");
+            return download.asText();
+        } catch (IOException e) {
+            return "";
+        }
     }
 
     /**

@@ -65,7 +65,7 @@ final class HTTPStreamFactory implements StreamFactory {
     @Override
     public ImageInputStream newSeekableStream() throws IOException {
         if (isChunkingEnabled()) {
-            if (serverAcceptsRanges) {
+            if (true) {
                 final int chunkSize = getChunkSize();
                 LOGGER.debug("newSeekableStream(): using {}-byte chunks",
                         chunkSize);
