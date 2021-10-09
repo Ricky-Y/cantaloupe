@@ -15,6 +15,7 @@ import okhttp3.Headers;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -348,8 +349,10 @@ class HttpSource extends AbstractSource implements Source {
         @Override
         public Format check() {
             try {
-                return Format.inferFormat(
-                        new URI(getRequestInfo().getURI()).getPath());
+                String fileName = requestInfo.getFileName();
+                return StringUtils.isBlank(fileName) ?
+                    Format.inferFormat(new URI(getRequestInfo().getURI()).getPath()) :
+                    Format.inferFormat(fileName);
             } catch (URISyntaxException e) {
                 LOGGER.warn("{}: {}",
                         getClass().getSimpleName(), e.getMessage());
@@ -600,35 +603,47 @@ class HttpSource extends AbstractSource implements Source {
     }
 
     private HTTPRequestInfo newRequestInfoUsingBasicStrategy() {
-        String downloadLink = getDownloadLink("");
+        JsonNode statusResponse = getStatusResponse(identifier.toString());
+        String downloadLink = getDownloadLink(statusResponse);
         final var config    = Configuration.getInstance();
-        final String prefix = config.getString(Key.HTTPSOURCE_URL_PREFIX, "");
-        final String suffix = config.getString(Key.HTTPSOURCE_URL_SUFFIX, "");
 
         final HTTPRequestInfo info = new HTTPRequestInfo();
-//        info.setURI(prefix + identifier.toString() + suffix);
         info.setURI(downloadLink);
         info.setUsername(config.getString(Key.HTTPSOURCE_BASIC_AUTH_USERNAME));
         info.setSecret(config.getString(Key.HTTPSOURCE_BASIC_AUTH_SECRET));
         info.getHeaders().add("Referer", "http://cs.asanas.chaoxing.com/");
+        info.setFileName(getFileName(statusResponse));
         info.setSendingHeadRequest(config.getBoolean(Key.HTTPSOURCE_SEND_HEAD_REQUESTS, true));
         return info;
     }
 
-    private String getDownloadLink(String objectId) {
+    private String getDownloadLink(JsonNode statusResponse) {
+        if (statusResponse == null) {
+            return "";
+        }
+        return statusResponse.get("download").asText();
+    }
+
+    private String getFileName(JsonNode statusResponse) {
+        if (statusResponse == null) {
+            return "";
+        }
+        return statusResponse.get("filename").asText();
+    }
+
+    private JsonNode getStatusResponse(String objectId) {
         final HTTPRequestInfo info = new HTTPRequestInfo();
-        info.setURI("http://cs.ananas.chaoxing.com/status/adaeda1a3971021942250a4f21b29a9c");
+        info.setURI("http://cs.ananas.chaoxing.com/status/" + objectId);
 
         try (Response response = request(info, "GET", Collections.emptyMap())) {
             ResourceInfo resourceInfo = ResourceInfo.fromResponse(response);
             if (resourceInfo.getStatus() != 200) {
-                return "";
+                return null;
             }
 
-            JsonNode download = new ObjectMapper().readTree(resourceInfo.getEntity()).get("download");
-            return download.asText();
+            return new ObjectMapper().readTree(resourceInfo.getEntity());
         } catch (IOException e) {
-            return "";
+            return null;
         }
     }
 

@@ -11,6 +11,7 @@ class HTTPRequestInfo {
     private final Headers headers = new Headers();
     private String uri, username, secret;
     private boolean isSendingHeadRequest = true;
+    private String fileName;
 
     String getBasicAuthToken() {
         if (getUsername() != null && getSecret() != null) {
@@ -66,9 +67,16 @@ class HTTPRequestInfo {
         this.username = username;
     }
 
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
     @Override
     public String toString() {
         return getURI() + "";
     }
-
 }
