@@ -5,6 +5,7 @@ import edu.illinois.library.cantaloupe.config.Key;
 import edu.illinois.library.cantaloupe.processor.codec.IIOProviderContextListener;
 import edu.illinois.library.cantaloupe.resource.FileServlet;
 import edu.illinois.library.cantaloupe.resource.HandlerServlet;
+import jakarta.servlet.MultipartConfigElement;
 import org.eclipse.jetty.alpn.server.ALPNServerConnectionFactory;
 import org.eclipse.jetty.http.UriCompliance;
 import org.eclipse.jetty.http2.HTTP2Cipher;
@@ -22,6 +23,7 @@ import org.eclipse.jetty.server.Slf4jRequestLogWriter;
 import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.servlet.ListenerHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
@@ -124,7 +126,10 @@ public class ApplicationServer {
                 "false");
 
         context.setContextPath("/");
-        context.addServlet(HandlerServlet.class, "/*");
+        ServletHolder servletHolder = new ServletHolder(HandlerServlet.class);
+        MultipartConfigElement multipartConfigElement = new MultipartConfigElement("target/tmp");
+        servletHolder.getRegistration().setMultipartConfig(multipartConfigElement);
+        context.addServlet(servletHolder, "/*");
         context.addServlet(FileServlet.class, "/static/*");
         context.getServletHandler().addListener(new ListenerHolder(ApplicationContextListener.class));
         context.getServletHandler().addListener(new ListenerHolder(IIOProviderContextListener.class));

@@ -45,6 +45,8 @@ public final class Route {
         MAPPINGS.put(Pattern.compile("/$"),
                 TrailingSlashRemovingResource.class);
 
+        MAPPINGS.put(Pattern.compile("^/upload$"), ImageUploadResource.class);
+
         // IIIF Image API v3 routes
         MAPPINGS.put(Pattern.compile("^" + IIIF_3_PATH + "$"),
                 edu.illinois.library.cantaloupe.resource.iiif.v3.LandingResource.class);

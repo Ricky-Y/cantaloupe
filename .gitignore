@@ -26,3 +26,6 @@ nbactions.xml
 
 # Auto-generated content
 /target
+
+# Local Testing
+/tmp
