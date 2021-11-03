@@ -2,6 +2,8 @@ package edu.illinois.library.cantaloupe.resource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import edu.illinois.library.cantaloupe.config.Configuration;
+import edu.illinois.library.cantaloupe.config.Key;
 import edu.illinois.library.cantaloupe.http.Method;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Part;
@@ -22,7 +24,6 @@ import java.util.List;
 public class ImageUploadResource extends PublicResource {
   private static final Logger LOGGER = LoggerFactory.getLogger(ImageUploadResource.class);
   private static final Method[] SUPPORTED_METHODS = new Method[]{Method.POST, Method.OPTIONS};
-  private static final String TEMPORARY_FILE_DIRECTORY = "/Users/ruyang/Documents/superstar/cantaloupe/tmp/";
   private static final String GENERATE_PYRAMID_TIFF_COMMAND = "vips tiffsave %s %s --tile --pyramid --compression deflate --tile-width 256 --tile-height 256\n";
   private static final String CDN_UPLOAD_ENDPOINT = "http://cs.ananas.chaoxing.com/upload";
   private static final String UID = "189943383";
@@ -43,10 +44,8 @@ public class ImageUploadResource extends PublicResource {
   public void doPOST() throws Exception {
     try {
       Path filePath = saveUploadedFileTemporarily();
-      String outputFileName = convertImageToPyramidalTiff(filePath);
-      Response cdnResponse = uploadpyramidalTiffToCDN(outputFileName);
-
-      processCDNResponse(cdnResponse);
+      String tiffFileName = convertImageToPyramidalTiff(filePath);
+      saveFileToFinalDestination(tiffFileName);
     } catch (UploadFileFormatException e) {
       HashMap<String, String> bodyMap = new HashMap<>();
       bodyMap.put("error", e.getMessage());
@@ -58,7 +57,8 @@ public class ImageUploadResource extends PublicResource {
     Part imagePart = getRequest().getServletRequest().getPart("image");
     String name = getFileName(imagePart);
     try (InputStream imageStream = imagePart.getInputStream()) {
-      Path filePath = Paths.get(TEMPORARY_FILE_DIRECTORY + name);
+      String tempFolderPath = getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER);
+      Path filePath = Paths.get(tempFolderPath + name);
       Files.copy(imageStream, filePath);
 
       return filePath;
@@ -79,7 +79,7 @@ public class ImageUploadResource extends PublicResource {
   }
 
   private String convertImageToPyramidalTiff(Path filePath) throws IOException, InterruptedException {
-    File directory = new File(TEMPORARY_FILE_DIRECTORY);
+    File tempDirectory = new File(getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER));
 
     String savedFileName = filePath.getFileName().toString();
     String[] splitFileName = savedFileName.split("\\.");
@@ -88,7 +88,7 @@ public class ImageUploadResource extends PublicResource {
 
     List<String> command = buildCommandStringList(savedFileName, outputFileName);
     ProcessBuilder processBuilder = new ProcessBuilder()
-      .directory(directory)
+      .directory(tempDirectory)
       .command(command)
       .redirectErrorStream(true);
 
@@ -97,7 +97,7 @@ public class ImageUploadResource extends PublicResource {
     BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
     String line;
     while ((line = reader.readLine()) != null) {
-      LOGGER.info(line);
+      LOGGER.info("[Executing vips command] ", line);
     }
 
     process.waitFor();
@@ -109,8 +109,33 @@ public class ImageUploadResource extends PublicResource {
     return List.of(s.split(" "));
   }
 
-  private Response uploadpyramidalTiffToCDN(String outputFileName) throws IOException {
-    File outputFile = new File(TEMPORARY_FILE_DIRECTORY + outputFileName);
+  private void saveFileToFinalDestination(String tiffFileName) throws IOException {
+    if (getConfiguration().getString(Key.SOURCE_STATIC) == "HttpSource") {
+      Response response = uploadPyramidalTiffToCDN(tiffFileName);
+      processCDNResponse(response);
+
+      return;
+    }
+
+    Path savedPath = moveTIFFToMountedDrive(tiffFileName);
+    HashMap<String, String> bodyMap = new HashMap<>();
+    bodyMap.put("filename", savedPath.getFileName().toString());
+    generateResponse(200, bodyMap);
+  }
+
+  private Path moveTIFFToMountedDrive(String tiffFileName) throws IOException {
+    String destinationFolder = getConfiguration().getString(Key.FILESYSTEMSOURCE_PATH_PREFIX);
+    Path destinationFilePath = Paths.get(destinationFolder + tiffFileName);
+    String tempFolderPath = getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER);
+    Path tiffFilePath = Paths.get(tempFolderPath + tiffFileName);
+
+    Files.copy(tiffFilePath, destinationFilePath);
+    return destinationFilePath;
+  }
+
+  private Response uploadPyramidalTiffToCDN(String outputFileName) throws IOException {
+    String tempFolderPath = getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER);
+    File outputFile = new File(tempFolderPath + outputFileName);
 
     RequestBody body = RequestBody.create(MediaType.parse("image/tiff"), outputFile);
     MultipartBody multipartBody = new MultipartBody.Builder().setType(MultipartBody.FORM)
@@ -164,5 +189,9 @@ public class ImageUploadResource extends PublicResource {
   private void generateResponse(int code, HashMap<String, String> bodyMap) throws IOException {
     new JacksonRepresentation(bodyMap).write(getResponse().getOutputStream());
     getResponse().setStatus(code);
+  }
+
+  private Configuration getConfiguration() {
+    return Configuration.getInstance();
   }
 }
