@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -42,14 +43,19 @@ public class ImageUploadResource extends PublicResource {
 
   @Override
   public void doPOST() throws Exception {
+    Path filePath = null;
+    String tiffFileName = null;
+
     try {
-      Path filePath = saveUploadedFileTemporarily();
-      String tiffFileName = convertImageToPyramidalTiff(filePath);
+      filePath = saveUploadedFileTemporarily();
+      tiffFileName = convertImageToPyramidalTiff(filePath);
       saveFileToFinalDestination(tiffFileName);
     } catch (UploadFileFormatException e) {
       HashMap<String, String> bodyMap = new HashMap<>();
       bodyMap.put("error", e.getMessage());
       generateResponse(400, bodyMap);
+    } finally {
+      cleanUpTemporaryFolder(filePath, tiffFileName);
     }
   }
 
@@ -102,6 +108,30 @@ public class ImageUploadResource extends PublicResource {
 
     process.waitFor();
     return outputFileName;
+  }
+
+  private void cleanUpTemporaryFolder(Path uploadedFilePath, String tiffFileName) {
+    List<Path> pathsToRemove = new ArrayList<>();
+    String tempDirectory = getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER);
+
+    if (uploadedFilePath != null) {
+      String savedFileName = uploadedFilePath.getFileName().toString();
+      Path uploadedImagePath = Paths.get(tempDirectory + savedFileName);
+      pathsToRemove.add(uploadedImagePath);
+    }
+
+    if (tiffFileName != null) {
+      Path tiffFilePath = Paths.get(tempDirectory + tiffFileName);
+      pathsToRemove.add(tiffFilePath);
+    }
+
+    for (var path : pathsToRemove) {
+      try {
+        Files.delete(path);
+      } catch (IOException e) {
+        LOGGER.warn("Failed deleting " + path, e);
+      }
+    }
   }
 
   private List<String> buildCommandStringList(String inputFile, String outputFile) {
