@@ -10,6 +10,7 @@ import edu.illinois.library.cantaloupe.logging.LoggerUtil;
 import edu.illinois.library.cantaloupe.source.Source;
 import edu.illinois.library.cantaloupe.source.SourceFactory;
 import edu.illinois.library.cantaloupe.delegate.DelegateProxyService;
+import edu.illinois.library.cantaloupe.util.database.DatabaseUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,6 +73,9 @@ public class ApplicationContextListener implements ServletContextListener {
 
         // Shut down all sources.
         SourceFactory.getAllSources().forEach(Source::shutdown);
+
+        // Close db connection pool.
+        DatabaseUtils.close();
 
         // Shut down the application thread pool.
         ThreadPool.getInstance().shutdown();

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.illinois.library.cantaloupe.config.Configuration;
 import edu.illinois.library.cantaloupe.config.Key;
 import edu.illinois.library.cantaloupe.http.Method;
+import edu.illinois.library.cantaloupe.util.database.DatabaseUtils;
+import edu.illinois.library.cantaloupe.util.database.UploadedImage;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Part;
 import okhttp3.*;
@@ -12,14 +14,20 @@ import okhttp3.Request;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.xml.bind.DatatypeConverter;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 
 public class ImageUploadResource extends PublicResource {
@@ -30,6 +38,7 @@ public class ImageUploadResource extends PublicResource {
   private static final String UID = "189943383";
   private static final String PRODUCT_ID = "4";
   private static final String CLIENT_IP = "127.0.0.1";
+  private MessageDigest algorithm;
 
   @Override
   protected Logger getLogger() {
@@ -47,25 +56,31 @@ public class ImageUploadResource extends PublicResource {
     String tiffFileName = null;
 
     try {
-      filePath = saveUploadedFileTemporarily();
+      filePath = storeUploadedFileTemporarily();
       tiffFileName = convertImageToPyramidalTiff(filePath);
-      saveFileToFinalDestination(tiffFileName);
+      saveFileToFinalDestination(filePath, tiffFileName);
     } catch (UploadFileFormatException e) {
       HashMap<String, String> bodyMap = new HashMap<>();
       bodyMap.put("error", e.getMessage());
       generateResponse(400, bodyMap);
+    } catch (Exception e) {
+      HashMap<String, String> bodyMap = new HashMap<>();
+      bodyMap.put("error", e.getMessage());
+      generateResponse(500, bodyMap);
     } finally {
       cleanUpTemporaryFolder(filePath, tiffFileName);
     }
   }
 
-  private Path saveUploadedFileTemporarily() throws ServletException, IOException, UploadFileFormatException {
+  private Path storeUploadedFileTemporarily() throws ServletException, IOException, UploadFileFormatException, NoSuchAlgorithmException {
     Part imagePart = getRequest().getServletRequest().getPart("image");
     String name = getFileName(imagePart);
-    try (InputStream imageStream = imagePart.getInputStream()) {
+    algorithm = MessageDigest.getInstance("MD5");
+    try (InputStream imageStream = imagePart.getInputStream();
+         DigestInputStream dis = new DigestInputStream(imageStream, algorithm)) {
       String tempFolderPath = getConfiguration().getString(Key.FILESYSTEMSOURCE_TEMPORARY_FOLDER);
       Path filePath = Paths.get(tempFolderPath + name);
-      Files.copy(imageStream, filePath);
+      Files.copy(dis, filePath);
 
       return filePath;
     }
@@ -139,7 +154,7 @@ public class ImageUploadResource extends PublicResource {
     return List.of(s.split(" "));
   }
 
-  private void saveFileToFinalDestination(String tiffFileName) throws IOException {
+  private void saveFileToFinalDestination(Path filePath, String tiffFileName) throws IOException, SQLException {
     if (getConfiguration().getString(Key.SOURCE_STATIC) == "HttpSource") {
       Response response = uploadPyramidalTiffToCDN(tiffFileName);
       processCDNResponse(response);
@@ -147,10 +162,62 @@ public class ImageUploadResource extends PublicResource {
       return;
     }
 
-    Path savedPath = moveTIFFToMountedDrive(tiffFileName);
+    saveTiffToDisk(filePath, tiffFileName);
+  }
+
+  private void saveTiffToDisk(Path filePath, String tiffFileName) throws SQLException, IOException {
+    UploadedImage image = buildUploadImageObject(filePath, tiffFileName);
+    if (!tryInsertImageRecord(image)) {
+      return;
+    }
+
+    Path savedPath;
+    try {
+      savedPath = moveTIFFToMountedDrive(tiffFileName);
+    } catch (IOException e) {
+      LOGGER.error("Failed copying tiff image to destination. ", e);
+      DatabaseUtils.deleteImageRecord(image);
+      return;
+    }
+
     HashMap<String, String> bodyMap = new HashMap<>();
     bodyMap.put("filename", savedPath.getFileName().toString());
     generateResponse(200, bodyMap);
+  }
+
+  private boolean tryInsertImageRecord(UploadedImage image) throws SQLException, IOException {
+    try{
+      DatabaseUtils.insertImageRecord(image);
+    } catch (SQLException e) {
+      Optional<UploadedImage> uploadedImage = DatabaseUtils.getImageByHashExtensionAndLength(image.getHashValue(), image.getLength(), image.getExtension());
+      if (uploadedImage.isPresent()) {
+        HashMap<String, String> bodyMap = new HashMap<>();
+        bodyMap.put("filename", uploadedImage.get().getFilename());
+        generateResponse(200, bodyMap);
+        return false;
+      }
+
+      throw e;
+    }
+    return true;
+  }
+
+  private UploadedImage buildUploadImageObject(Path filePath, String tiffFileName) {
+    byte[] digest = algorithm.digest();
+    String digestString = DatatypeConverter.printHexBinary(digest);
+
+    File file = filePath.toFile();
+    Integer fileLength = Math.toIntExact(file.length());
+
+    String[] splitFileName = file.getName().split("\\.");
+    String extension = splitFileName[splitFileName.length - 1];
+
+    UploadedImage image = new UploadedImage();
+    image.setFilename(tiffFileName);
+    image.setHashValue(digestString);
+    image.setLength(fileLength);
+    image.setExtension(extension);
+    return image;
   }
 
   private Path moveTIFFToMountedDrive(String tiffFileName) throws IOException {
