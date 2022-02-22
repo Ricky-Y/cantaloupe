@@ -1,16 +1,44 @@
 # 🍈 Cantaloupe
 
-*High-performance dynamic image server in Java*
+*This is README for SuperStar developers, original readme refers to [here](Original_README.md)*
 
-# Users
+*There is a project website [here](https://cantaloupe-project.github.io/), refer to it for more info* 
 
-**[Get started with a release build.](https://github.com/cantaloupe-project/cantaloupe/releases)**
+## Developers
 
-# Developers
+The codebase is based on an open source project, [Cantaloupe](https://github.com/cantaloupe-project/cantaloupe). But some customizations are done:
+* Add an endpoint for image uploading
+* Uploaded image is converted to pyramidal tiff format to allow fetching by tile
+* Support two data storages: superstar CDN and SSD mounted on servers via network and  it is configurable
+* For mounted SSD storage, deduplicate images by size, format and hash value (CDN has its own dedup function)
+* Allow fetching image by filename from mounted SSD or by object id from CDN
 
-## Build & run
+### Setting up local machine
 
-### Command line
+To use `FileSystem` as the image storage, a database is required. Create a database named `cantaloupe` and run this SQL statement to create a table:
+
+```
+create table uploaded_images (
+  id int unsigned NOT NULL AUTO_INCREMENT,
+  filename varchar(70) NOT NULL,
+  extension varchar(4) NOT NULL,
+  length int unsigned NOT NULL,
+  hash_value char(32) NOT NULL,
+  upload_time timestamp DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY `index_on_program_id_network_and_country_code_and_merchant_name` (`program_id`, `network`, `country_code`, `merchant_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+```
+
+### Build & run
+
+First of all, a configuration file must be created. Two templates are provided in this repo: `cantaloupe.properties.sample` and `cantaloupe.production.properties.sample`, for development and production environment, respectively.
+
+Copy example configuration files and remove `.example` to make them work and change configurations accordingly.
+
+Little trick, in linux/unix env, run `cp cantaloupe.properties{,.sample}` to do it.
+
+#### Command line
 
 * `mvn clean compile exec:java -Dcantaloupe.config=...` will build and run the
   project using the embedded web server listening on the port(s) specified in
@@ -18,143 +46,17 @@
 * `mvn clean package -DskipTests` will build a release JAR in the `target`
   folder, which can be run via:
 
-  `java -cp cantaloupe-{version}.jar -Dcantaloupe.config=... edu.illinois.library.cantaloupe.StandaloneEntry`
+  `java -jar cantaloupe-5.0.5.jar -Dcantaloupe.config=/path/to/cantaloupe.properties`
 
-### IDE
+#### IDE
 
-1. Add a new run configuration using the "Java Application" template or
-   similar.
-2. Set the main class to `edu.illinois.library.cantaloupe.StandaloneEntry` and
-   add the `-Dcantaloupe.config=...` VM option.
+1. Add a new run configuration using the "Maven" template.
+2. In `parameters` tab, set command line to `exec:java -Dcantaloupe.config=cantaloupe.properties`.
 
-## Test
+## Deploy
 
-### Testing the code
+1. Build the jar file locally
+2. Upload the jar file to server (`scp` if you are on unix/linux machine)
+3. Stop the running application and remove the outdated jar file.
+4. Move uploaded jar to the working directory and start the application.
 
-Copy `test.properties.sample` to `test.properties` and fill in whatever info
-you have.
-
-The code tests are structured into three Maven profiles:
-
-#### 1. Tests with no dependencies
-
-`mvn clean test -Pnodeps` will run only the tests that have no dependencies
-on third-party services and do not require any external tools or libraries.
-
-#### 2. Tests with free dependencies
-
-`mvn clean test -Pfreedeps` will run all of the above tests, plus any that
-depend on open-source tools or libraries. These are the tests run in
-continuous integration. The following dependencies are required:
-
-* MinIO (for S3SourceTest & S3CacheTest)
-* FFmpeg (for FfmpegProcessorTest)
-* Grok (for GrokProcessorTest)
-* OpenJPEG (for OpenJpegProcessorTest)
-* TurboJPEG with Java binding (for TurboJpegProcessorTest)
-* Redis (for RedisCacheTest)
-
-#### 3. All tests
-
-`mvn clean test` will run all tests including the ones above. The following
-additional dependencies are required:
-
-* Kakadu native library (for KakaduNativeProcessorTest) - see the
-  KakaduNativeProcessor section of the user manual for information.
-* A Microsoft Azure account
-
-#### Docker
-
-Because it can be a chore to install all of the dependencies needed to get all
-of the tests in the `freedeps` profile passing, there is a `docker-compose.yml`
-file available that will spin up all needed dependencies in separate
-containers, and run the tests in another container. From the project root
-directory, invoke:
-
-  `docker-compose -f docker/{platform}/docker-compose.yml up --build --exit-code-from cantaloupe`.
-
-### Output testing
-
-There is an [output tester tool](https://github.com/cantaloupe-project/output-tester)
-that enables visual inspection of image output.
-
-### Performance testing
-
-Performance tests use [JMH](http://openjdk.java.net/projects/code-tools/jmh/).
-Run them with `mvn clean test -Pbenchmark`.
-
-## Contribute
-
-The suggested process for contributing code changes is:
-
-1. Submit a "heads-up" issue in the tracker, ideally before beginning any
-   work.
-2. [Create a fork.](https://github.com/cantaloupe-project/cantaloupe/fork)
-3. Create a feature branch, starting from either `release/x.x` or `develop`
-   (see the "Versioning" section.)
-4. Make your changes.
-5. Commit your changes (`git commit -am 'Add some feature'`).
-6. Push the branch (`git push origin feature/my-new-feature`).
-7. Create a pull request.
-
-## Other Notes
-
-### Configuration keys
-
-Different application versions may require different configuration file keys.
-It's good practice to use a dedicated configuration file for each version.
-Key changes are documented in
-[UPGRADING.md](https://github.com/cantaloupe-project/cantaloupe/blob/develop/UPGRADING.md).
-
-### Versioning
-
-Cantaloupe roughly uses semantic versioning. Major releases (n) involve major
-redesign that breaks backwards compatibility significantly. Minor releases
-(n.n) either do not break compatibility, or only in a minor way. Patch releases
-(n.n.n) are for bugfixes only.
-
-### Branching
-
-Cantaloupe uses a basic version of the
-[Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows#gitflow-workflow)
-branching model. `develop` is the main branch that tracks the current state of
-the next non-bugfix release. Significant features branch off of that into
-feature branches (`feature/feature-name`), from which they can be integrated
-into a particular release.
-
-When a major or minor version in `develop` is ready for release, it merges into
-a `release/n.n` branch, where the release is tagged and the release archive is
-created.
-
-Bugfixes that would increment a minor version of a release are applied to its
-release branch and merged back into `develop`.
-
-## Prerelease
-
-1. Run the Maven Verifier plugin (`mvn verify -DskipTests=true`)
-2. Run an OWASP dependency check (`mvn org.owasp:dependency-check-maven:check`)
-3. Run Spotbugs (`mvn clean compile spotbugs:spotbugs spotbugs:gui`)
-4. Run the [Endpoint tests](https://github.com/cantaloupe-project/output-tester)
-5. Finalize the code to be released, addressing any relevant milestone issues,
-   TODOs, etc.
-6. Finalize the documentation, including the website, user manual, and change
-   log
-
-## Releasing
-
-1. Merge into `release/vX.X`
-2. Update the version in `pom.xml` and commit this change
-3. `git push origin release/x.x`
-4. Wait for CI tests to pass
-5. Tag the release: `git tag -a v{version} -m 'Tag v{version}'; git push --tags`
-6. Wait for GitHub Actions to add the release artifact to the tag
-7. Add the change log to the release on GitHub
-8. Close the release's issue milestone
-9. Deploy the updated
-    [website](https://github.com/cantaloupe-project/cantaloupe-project.github.io)
-    (if necessary)
-
-## License
-
-Cantaloupe is open-source software distributed under the University of
-Illinois/NCSA Open Source License; see the file LICENSE.txt for terms.

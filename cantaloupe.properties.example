@@ -167,7 +167,11 @@ FilesystemSource.lookup_strategy = BasicLookupStrategy
 
 # Server-side path that will be prefixed to the identifier in the URL.
 # Trailing slash is important!
-FilesystemSource.BasicLookupStrategy.path_prefix = /home/myself/images/
+#
+# THE PATH_PREFIX AND TMP FOLDER CANNOT BE SAME FOLDER!!!!!
+# FilesystemSource.BasicLookupStrategy.path_prefix = /home/myself/images/
+FilesystemSource.BasicLookupStrategy.path_prefix = /Users/ruyang/Documents/superstar/cantaloupe/images/
+FilesystemSource.BasicLookupStrategy.temporaryFolder = /Users/ruyang/Documents/superstar/cantaloupe/tmp/
 
 # Server-side path or extension that will be suffixed to the identifier in
 # the URL.
